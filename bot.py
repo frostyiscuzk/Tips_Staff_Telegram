@@ -398,6 +398,11 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return MAIN_MENU
 
 
+# Matches the "🔄 Reset" text sent by the old persistent reply keyboard,
+# or anyone typing "reset" manually.
+RESET_TEXT_FILTER = filters.Regex(r"(?i)^(🔄 )?reset!?$")
+
+
 async def stale_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Catches taps on buttons from old/expired messages so they don't spin forever
     query = update.callback_query
@@ -410,46 +415,50 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     reset_btn = CallbackQueryHandler(reset_callback, pattern="^reset$")
+    reset_text = MessageHandler(RESET_TEXT_FILTER, reset_command)
+    reset_cmd = CommandHandler("reset", reset_command)
 
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
             reset_btn,
+            reset_text,
+            reset_cmd,
         ],
         states={
             MAIN_MENU: [
-                reset_btn,
+                reset_btn, reset_text, reset_cmd,
                 CallbackQueryHandler(main_menu_callback, pattern="^(new_split|view_history)$"),
             ],
             ASK_TOTAL: [
-                reset_btn,
+                reset_btn, reset_text, reset_cmd,
                 MessageHandler(filters.TEXT & ~filters.COMMAND, got_total),
             ],
             ASK_DEPT_ORDER: [
-                reset_btn,
+                reset_btn, reset_text, reset_cmd,
                 CallbackQueryHandler(got_dept_order, pattern="^dept_(kitchen|service)$"),
             ],
             ASK_NAME: [
-                reset_btn,
+                reset_btn, reset_text, reset_cmd,
                 CallbackQueryHandler(done_dept_callback, pattern="^done_dept$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, got_name),
             ],
             ASK_HOURS: [
-                reset_btn,
+                reset_btn, reset_text, reset_cmd,
                 MessageHandler(filters.TEXT & ~filters.COMMAND, got_hours),
             ],
             ASK_SHARE: [
-                reset_btn,
+                reset_btn, reset_text, reset_cmd,
                 CallbackQueryHandler(got_share, pattern="^share_(full|half)$"),
             ],
             HISTORY_MENU: [
-                reset_btn,
+                reset_btn, reset_text, reset_cmd,
                 CallbackQueryHandler(history_callback, pattern="^(hist_(7|30|back|menu)|del_menu|del_.+|delc_.+)$"),
             ],
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            CommandHandler("reset", reset_command),
+            reset_cmd,
         ],
         allow_reentry=True,
     )
