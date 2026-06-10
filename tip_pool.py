@@ -2,7 +2,8 @@ import json
 import os
 from datetime import datetime, timedelta
 
-_HISTORY_FILE = os.path.join(os.path.dirname(__file__), "tips_history.json")
+_HISTORY_DIR = os.getenv("HISTORY_DIR", os.path.dirname(__file__))
+_HISTORY_FILE = os.path.join(_HISTORY_DIR, "tips_history.json")
 
 
 def save_to_history(pool):
