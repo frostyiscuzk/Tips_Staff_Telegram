@@ -6,12 +6,12 @@ from telegram.ext import (
     ConversationHandler, filters, ContextTypes
 )
 from staff import StaffMember
-from tip_pool import TipPool, save_to_history, load_history, delete_history_date
+from tip_pool import TipPool
 
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-MAIN_MENU, ASK_TOTAL, ASK_DEPT_ORDER, ASK_NAME, ASK_HOURS, ASK_SHARE, HISTORY_MENU = range(7)
+MAIN_MENU, ASK_TOTAL, ASK_DEPT_ORDER, ASK_NAME, ASK_HOURS, ASK_SHARE = range(6)
 
 DEPT_EMOJI = {"Kitchen": "🍳", "Service": "🍽️"}
 
@@ -23,7 +23,6 @@ RESET_ROW = [InlineKeyboardButton("🔄 Reset", callback_data="reset")]
 def main_menu_kb():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("💰 New Tip Split", callback_data="new_split")],
-        [InlineKeyboardButton("📋 View History", callback_data="view_history")],
     ])
 
 
@@ -59,36 +58,6 @@ def done_kb(dept):
     ])
 
 
-def history_range_kb():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("📅 Last 7 Days", callback_data="hist_7"),
-            InlineKeyboardButton("🗓️ Last 30 Days", callback_data="hist_30"),
-        ],
-        [InlineKeyboardButton("🗑️ Delete a day", callback_data="del_menu")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="hist_back")],
-    ])
-
-
-def delete_dates_kb(dates):
-    rows = [[InlineKeyboardButton(f"🗑️ {d}", callback_data=f"del_{d}")] for d in dates]
-    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="hist_menu")])
-    return InlineKeyboardMarkup(rows)
-
-
-def confirm_delete_kb(date):
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✅ Yes, delete", callback_data=f"delc_{date}"),
-            InlineKeyboardButton("❌ No", callback_data="del_menu"),
-        ],
-    ])
-
-
-def back_kb():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="hist_back")]])
-
-
 # ── Text helpers ──────────────────────────────────────────────────────────────
 
 def roster_text(members):
@@ -117,25 +86,7 @@ def result_text(pool):
     return "\n".join(lines)
 
 
-def format_history(entries):
-    if not entries:
-        return "_No history saved yet. Run a tip split to start recording._"
-    lines = []
-    for entry in reversed(entries):
-        lines.append(f"📆 *{entry['date']}* — Total: €{entry['total_tips']:.2f}")
-        kitchen = [m for m in entry["staff"] if m["dept"] == "Kitchen"]
-        service = [m for m in entry["staff"] if m["dept"] == "Service"]
-        if kitchen:
-            parts = [f"{m['name']} {m['hours']}h{'(½)' if m['share']=='half' else ''} → €{m['tips']:.2f}" for m in kitchen]
-            lines.append(f"  🍳 {' | '.join(parts)}")
-        if service:
-            parts = [f"{m['name']} {m['hours']}h{'(½)' if m['share']=='half' else ''} → €{m['tips']:.2f}" for m in service]
-            lines.append(f"  🍽️ {' | '.join(parts)}")
-        lines.append("")
-    return "\n".join(lines).strip()
-
-
-MENU_TEXT = "👋 *Tip Split Bot*\n\nWhat would you like to do?"
+MENU_TEXT = "👋 *Tip Split Bot*\n\nReady when you are!"
 
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
@@ -161,20 +112,12 @@ async def reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    if query.data == "new_split":
-        await query.edit_message_text(
-            "💰 *New Tip Split*\n\nEnter total tips today (€):",
-            parse_mode="Markdown",
-            reply_markup=reset_kb(),
-        )
-        return ASK_TOTAL
-    else:  # view_history
-        await query.edit_message_text(
-            "📋 *Tip History*\n\nSelect a time range:",
-            parse_mode="Markdown",
-            reply_markup=history_range_kb(),
-        )
-        return HISTORY_MENU
+    await query.edit_message_text(
+        "💰 *New Tip Split*\n\nEnter total tips today (€):",
+        parse_mode="Markdown",
+        reply_markup=reset_kb(),
+    )
+    return ASK_TOTAL
 
 
 async def got_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -258,9 +201,8 @@ async def done_dept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ASK_NAME
 
     pool.split()
-    save_to_history(pool)
     await query.edit_message_text(
-        result_text(pool) + "\n\n_Saved to history_ ✅",
+        result_text(pool),
         parse_mode="Markdown",
         reply_markup=main_menu_kb(),
     )
@@ -318,72 +260,6 @@ async def got_share(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ASK_NAME
 
 
-async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "hist_back":
-        await query.edit_message_text(
-            MENU_TEXT, parse_mode="Markdown", reply_markup=main_menu_kb()
-        )
-        return MAIN_MENU
-
-    if query.data == "hist_menu":
-        await query.edit_message_text(
-            "📋 *Tip History*\n\nSelect a time range:",
-            parse_mode="Markdown",
-            reply_markup=history_range_kb(),
-        )
-        return HISTORY_MENU
-
-    if query.data == "del_menu":
-        dates = sorted({e["date"] for e in load_history(30)}, reverse=True)
-        if not dates:
-            await query.edit_message_text(
-                "📋 *Tip History*\n\n_Nothing to delete — no history in the last 30 days._",
-                parse_mode="Markdown",
-                reply_markup=history_range_kb(),
-            )
-            return HISTORY_MENU
-        await query.edit_message_text(
-            "🗑️ *Delete a day*\n\nPick the day to delete:",
-            parse_mode="Markdown",
-            reply_markup=delete_dates_kb(dates),
-        )
-        return HISTORY_MENU
-
-    if query.data.startswith("delc_"):
-        date = query.data[len("delc_"):]
-        removed = delete_history_date(date)
-        await query.edit_message_text(
-            f"🗑️ *{date}* deleted ({removed} entr{'y' if removed == 1 else 'ies'} removed).",
-            parse_mode="Markdown",
-            reply_markup=history_range_kb(),
-        )
-        return HISTORY_MENU
-
-    if query.data.startswith("del_"):
-        date = query.data[len("del_"):]
-        entries = [e for e in load_history(30) if e["date"] == date]
-        total = sum(e["total_tips"] for e in entries)
-        await query.edit_message_text(
-            f"⚠️ Delete *{date}*?\n\n{len(entries)} entr{'y' if len(entries) == 1 else 'ies'}, €{total:.2f} total.\n_This cannot be undone._",
-            parse_mode="Markdown",
-            reply_markup=confirm_delete_kb(date),
-        )
-        return HISTORY_MENU
-
-    days = 7 if query.data == "hist_7" else 30
-    entries = load_history(days)
-    label = "Last 7 Days" if days == 7 else "Last 30 Days"
-    body = format_history(entries)
-    text = f"📋 *{label}*\n\n{body}"
-    if len(text) > 4096:
-        text = text[:4090] + "…"
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=back_kb())
-    return HISTORY_MENU
-
-
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ Cancelled.", reply_markup=main_menu_kb())
@@ -428,7 +304,7 @@ def main():
         states={
             MAIN_MENU: [
                 reset_btn, reset_text, reset_cmd,
-                CallbackQueryHandler(main_menu_callback, pattern="^(new_split|view_history)$"),
+                CallbackQueryHandler(main_menu_callback, pattern="^new_split$"),
             ],
             ASK_TOTAL: [
                 reset_btn, reset_text, reset_cmd,
@@ -450,10 +326,6 @@ def main():
             ASK_SHARE: [
                 reset_btn, reset_text, reset_cmd,
                 CallbackQueryHandler(got_share, pattern="^share_(full|half)$"),
-            ],
-            HISTORY_MENU: [
-                reset_btn, reset_text, reset_cmd,
-                CallbackQueryHandler(history_callback, pattern="^(hist_(7|30|back|menu)|del_menu|del_.+|delc_.+)$"),
             ],
         },
         fallbacks=[
