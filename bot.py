@@ -1,6 +1,9 @@
 import os
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update, InlineKeyboardButton, InlineKeyboardMarkup,
+    ReplyKeyboardMarkup, KeyboardButton,
+)
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ConversationHandler, filters, ContextTypes
@@ -14,6 +17,14 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 MAIN_MENU, ASK_TOTAL, ASK_DEPT_ORDER, ASK_NAME, ASK_HOURS, ASK_SHARE, HISTORY_MENU = range(7)
 
 DEPT_EMOJI = {"Kitchen": "🍳", "Service": "🍽️"}
+
+RESET_BTN = "🔄 Reset"
+
+RESET_KEYBOARD = ReplyKeyboardMarkup(
+    [[KeyboardButton(RESET_BTN)]],
+    resize_keyboard=True,
+    is_persistent=True,
+)
 
 
 # ── Keyboards ────────────────────────────────────────────────────────────────
@@ -111,8 +122,12 @@ def format_history(entries):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text(
-        "👋 *Hey! Tip Split Bot*\n\nWhat would you like to do?",
+        "👋 *Hey! Tip Split Bot*",
         parse_mode="Markdown",
+        reply_markup=RESET_KEYBOARD,
+    )
+    await update.message.reply_text(
+        "What would you like to do?",
         reply_markup=main_menu_kb(),
     )
     return MAIN_MENU
@@ -294,34 +309,47 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return MAIN_MENU
 
 
+reset_button_handler = MessageHandler(filters.Regex(f"^{RESET_BTN}$"), reset)
+
+
 # ── App ───────────────────────────────────────────────────────────────────────
 
 def main():
     app = Application.builder().token(TOKEN).build()
 
     conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[
+            CommandHandler("start", start),
+            reset_button_handler,
+        ],
         states={
             MAIN_MENU: [
+                reset_button_handler,
                 CallbackQueryHandler(main_menu_callback, pattern="^(new_split|view_history)$"),
             ],
             ASK_TOTAL: [
+                reset_button_handler,
                 MessageHandler(filters.TEXT & ~filters.COMMAND, got_total),
             ],
             ASK_DEPT_ORDER: [
+                reset_button_handler,
                 CallbackQueryHandler(got_dept_order, pattern="^dept_(kitchen|service)$"),
             ],
             ASK_NAME: [
+                reset_button_handler,
                 CallbackQueryHandler(done_dept_callback, pattern="^done_dept$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, got_name),
             ],
             ASK_HOURS: [
+                reset_button_handler,
                 MessageHandler(filters.TEXT & ~filters.COMMAND, got_hours),
             ],
             ASK_SHARE: [
+                reset_button_handler,
                 CallbackQueryHandler(got_share, pattern="^share_(full|half)$"),
             ],
             HISTORY_MENU: [
+                reset_button_handler,
                 CallbackQueryHandler(history_callback, pattern="^hist_(7|30|back)$"),
             ],
         },
