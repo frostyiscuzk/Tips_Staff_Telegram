@@ -1,9 +1,6 @@
 import os
 from dotenv import load_dotenv
-from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup,
-    ReplyKeyboardMarkup, KeyboardButton,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ConversationHandler, filters, ContextTypes
@@ -18,13 +15,7 @@ MAIN_MENU, ASK_TOTAL, ASK_DEPT_ORDER, ASK_NAME, ASK_HOURS, ASK_SHARE, HISTORY_ME
 
 DEPT_EMOJI = {"Kitchen": "🍳", "Service": "🍽️"}
 
-RESET_BTN = "🔄 Reset"
-
-RESET_KEYBOARD = ReplyKeyboardMarkup(
-    [[KeyboardButton(RESET_BTN)]],
-    resize_keyboard=True,
-    is_persistent=True,
-)
+RESET_ROW = [InlineKeyboardButton("🔄 Reset", callback_data="reset")]
 
 
 # ── Keyboards ────────────────────────────────────────────────────────────────
@@ -36,25 +27,36 @@ def main_menu_kb():
     ])
 
 
+def reset_kb():
+    return InlineKeyboardMarkup([RESET_ROW])
+
+
 def dept_kb():
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("🍳 Kitchen", callback_data="dept_kitchen"),
-        InlineKeyboardButton("🍽️ Service", callback_data="dept_service"),
-    ]])
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🍳 Kitchen", callback_data="dept_kitchen"),
+            InlineKeyboardButton("🍽️ Service", callback_data="dept_service"),
+        ],
+        RESET_ROW,
+    ])
 
 
 def share_kb():
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("Full Share", callback_data="share_full"),
-        InlineKeyboardButton("Half Share", callback_data="share_half"),
-    ]])
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Full Share", callback_data="share_full"),
+            InlineKeyboardButton("Half Share", callback_data="share_half"),
+        ],
+        RESET_ROW,
+    ])
 
 
 def done_kb(dept):
     emoji = DEPT_EMOJI[dept]
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"✅ Done with {emoji} {dept}", callback_data="done_dept"),
-    ]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"✅ Done with {emoji} {dept}", callback_data="done_dept")],
+        RESET_ROW,
+    ])
 
 
 def history_range_kb():
@@ -117,18 +119,25 @@ def format_history(entries):
     return "\n".join(lines).strip()
 
 
+MENU_TEXT = "👋 *Tip Split Bot*\n\nWhat would you like to do?"
+
+
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text(
-        "👋 *Hey! Tip Split Bot*",
-        parse_mode="Markdown",
-        reply_markup=RESET_KEYBOARD,
+        MENU_TEXT, parse_mode="Markdown", reply_markup=main_menu_kb()
     )
-    await update.message.reply_text(
-        "What would you like to do?",
-        reply_markup=main_menu_kb(),
+    return MAIN_MENU
+
+
+async def reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("🔄 Reset!")
+    context.user_data.clear()
+    await query.edit_message_text(
+        MENU_TEXT, parse_mode="Markdown", reply_markup=main_menu_kb()
     )
     return MAIN_MENU
 
@@ -140,6 +149,7 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text(
             "💰 *New Tip Split*\n\nEnter total tips today (€):",
             parse_mode="Markdown",
+            reply_markup=reset_kb(),
         )
         return ASK_TOTAL
     else:  # view_history
@@ -157,7 +167,10 @@ async def got_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if total <= 0:
             raise ValueError
     except ValueError:
-        await update.message.reply_text("⚠️ Enter a positive number, e.g. `350`", parse_mode="Markdown")
+        await update.message.reply_text(
+            "⚠️ Enter a positive number, e.g. `350`",
+            parse_mode="Markdown", reply_markup=reset_kb(),
+        )
         return ASK_TOTAL
 
     context.user_data["pool"] = TipPool(total)
@@ -190,20 +203,28 @@ async def got_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"👤 *{name}*\n\n⏱️ Hours worked?",
         parse_mode="Markdown",
+        reply_markup=reset_kb(),
     )
     return ASK_HOURS
 
 
 async def done_dept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    pool = context.user_data["pool"]
+    pool = context.user_data.get("pool")
+    if pool is None:
+        await query.answer("Session expired — starting over.")
+        await query.edit_message_text(
+            MENU_TEXT, parse_mode="Markdown", reply_markup=main_menu_kb()
+        )
+        return MAIN_MENU
+
     current_dept = context.user_data["current_dept"]
     other_dept = context.user_data["other_dept"]
     switched = context.user_data["switched"]
 
     if not any(m.department == current_dept for m in pool.members):
         await query.answer(
-            f"⚠️ Add at least one person to {DEPT_EMOJI[current_dept]} {current_dept} first!",
+            f"⚠️ Add at least one person to {current_dept} first!",
             show_alert=True,
         )
         return ASK_NAME
@@ -236,7 +257,10 @@ async def got_hours(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if hours <= 0:
             raise ValueError
     except ValueError:
-        await update.message.reply_text("⚠️ Enter a positive number, e.g. `7.5`", parse_mode="Markdown")
+        await update.message.reply_text(
+            "⚠️ Enter a positive number, e.g. `7.5`",
+            parse_mode="Markdown", reply_markup=reset_kb(),
+        )
         return ASK_HOURS
 
     context.user_data["hours"] = hours
@@ -251,6 +275,14 @@ async def got_hours(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def got_share(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    pool = context.user_data.get("pool")
+    if pool is None:
+        await query.answer("Session expired — starting over.")
+        await query.edit_message_text(
+            MENU_TEXT, parse_mode="Markdown", reply_markup=main_menu_kb()
+        )
+        return MAIN_MENU
+
     await query.answer()
     multiplier = 1.0 if query.data == "share_full" else 0.5
     member = StaffMember(
@@ -259,9 +291,9 @@ async def got_share(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["current_dept"],
         multiplier,
     )
-    context.user_data["pool"].add_member(member)
+    pool.add_member(member)
     current_dept = context.user_data["current_dept"]
-    roster = roster_text(context.user_data["pool"].members)
+    roster = roster_text(pool.members)
     await query.edit_message_text(
         f"✅ *{member.name}* added\n\n{roster}\n\n{DEPT_EMOJI[current_dept]} Enter next {current_dept} name:",
         parse_mode="Markdown",
@@ -276,9 +308,7 @@ async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "hist_back":
         await query.edit_message_text(
-            "👋 *Hey! Tip Split Bot*\n\nWhat would you like to do?",
-            parse_mode="Markdown",
-            reply_markup=main_menu_kb(),
+            MENU_TEXT, parse_mode="Markdown", reply_markup=main_menu_kb()
         )
         return MAIN_MENU
 
@@ -299,17 +329,18 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return MAIN_MENU
 
 
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text(
-        "🔄 *Reset!*\n\nWhat would you like to do?",
-        parse_mode="Markdown",
-        reply_markup=main_menu_kb(),
+        MENU_TEXT, parse_mode="Markdown", reply_markup=main_menu_kb()
     )
     return MAIN_MENU
 
 
-reset_button_handler = MessageHandler(filters.Regex(f"^{RESET_BTN}$"), reset)
+async def stale_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Catches taps on buttons from old/expired messages so they don't spin forever
+    query = update.callback_query
+    await query.answer("This menu has expired — use /start", show_alert=True)
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -317,49 +348,55 @@ reset_button_handler = MessageHandler(filters.Regex(f"^{RESET_BTN}$"), reset)
 def main():
     app = Application.builder().token(TOKEN).build()
 
+    reset_btn = CallbackQueryHandler(reset_callback, pattern="^reset$")
+
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
-            reset_button_handler,
+            reset_btn,
         ],
         states={
             MAIN_MENU: [
-                reset_button_handler,
+                reset_btn,
                 CallbackQueryHandler(main_menu_callback, pattern="^(new_split|view_history)$"),
             ],
             ASK_TOTAL: [
-                reset_button_handler,
+                reset_btn,
                 MessageHandler(filters.TEXT & ~filters.COMMAND, got_total),
             ],
             ASK_DEPT_ORDER: [
-                reset_button_handler,
+                reset_btn,
                 CallbackQueryHandler(got_dept_order, pattern="^dept_(kitchen|service)$"),
             ],
             ASK_NAME: [
-                reset_button_handler,
+                reset_btn,
                 CallbackQueryHandler(done_dept_callback, pattern="^done_dept$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, got_name),
             ],
             ASK_HOURS: [
-                reset_button_handler,
+                reset_btn,
                 MessageHandler(filters.TEXT & ~filters.COMMAND, got_hours),
             ],
             ASK_SHARE: [
-                reset_button_handler,
+                reset_btn,
                 CallbackQueryHandler(got_share, pattern="^share_(full|half)$"),
             ],
             HISTORY_MENU: [
-                reset_button_handler,
+                reset_btn,
                 CallbackQueryHandler(history_callback, pattern="^hist_(7|30|back)$"),
             ],
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            CommandHandler("reset", reset),
+            CommandHandler("reset", reset_command),
         ],
+        allow_reentry=True,
     )
 
     app.add_handler(conv)
+    # Any callback not consumed by the conversation gets answered here,
+    # otherwise Telegram shows an endless loading spinner on the button.
+    app.add_handler(CallbackQueryHandler(stale_button), group=1)
     print("Bot running")
     app.run_polling()
 
