@@ -32,6 +32,20 @@ def load_history(days):
     return [e for e in history if e["date"] >= cutoff]
 
 
+def delete_history_date(date_str):
+    try:
+        with open(_HISTORY_FILE) as f:
+            history = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return 0
+    kept = [e for e in history if e["date"] != date_str]
+    removed = len(history) - len(kept)
+    if removed:
+        with open(_HISTORY_FILE, "w") as f:
+            json.dump(kept, f, indent=2)
+    return removed
+
+
 class TipPool:
     def __init__(self, total_tips):
         self.total_tips = total_tips

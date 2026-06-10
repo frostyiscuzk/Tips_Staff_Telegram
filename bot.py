@@ -6,7 +6,7 @@ from telegram.ext import (
     ConversationHandler, filters, ContextTypes
 )
 from staff import StaffMember
-from tip_pool import TipPool, save_to_history, load_history
+from tip_pool import TipPool, save_to_history, load_history, delete_history_date
 
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -65,7 +65,23 @@ def history_range_kb():
             InlineKeyboardButton("📅 Last 7 Days", callback_data="hist_7"),
             InlineKeyboardButton("🗓️ Last 30 Days", callback_data="hist_30"),
         ],
+        [InlineKeyboardButton("🗑️ Delete a day", callback_data="del_menu")],
         [InlineKeyboardButton("⬅️ Back", callback_data="hist_back")],
+    ])
+
+
+def delete_dates_kb(dates):
+    rows = [[InlineKeyboardButton(f"🗑️ {d}", callback_data=f"del_{d}")] for d in dates]
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="hist_menu")])
+    return InlineKeyboardMarkup(rows)
+
+
+def confirm_delete_kb(date):
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Yes, delete", callback_data=f"delc_{date}"),
+            InlineKeyboardButton("❌ No", callback_data="del_menu"),
+        ],
     ])
 
 
@@ -312,6 +328,51 @@ async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return MAIN_MENU
 
+    if query.data == "hist_menu":
+        await query.edit_message_text(
+            "📋 *Tip History*\n\nSelect a time range:",
+            parse_mode="Markdown",
+            reply_markup=history_range_kb(),
+        )
+        return HISTORY_MENU
+
+    if query.data == "del_menu":
+        dates = sorted({e["date"] for e in load_history(30)}, reverse=True)
+        if not dates:
+            await query.edit_message_text(
+                "📋 *Tip History*\n\n_Nothing to delete — no history in the last 30 days._",
+                parse_mode="Markdown",
+                reply_markup=history_range_kb(),
+            )
+            return HISTORY_MENU
+        await query.edit_message_text(
+            "🗑️ *Delete a day*\n\nPick the day to delete:",
+            parse_mode="Markdown",
+            reply_markup=delete_dates_kb(dates),
+        )
+        return HISTORY_MENU
+
+    if query.data.startswith("delc_"):
+        date = query.data[len("delc_"):]
+        removed = delete_history_date(date)
+        await query.edit_message_text(
+            f"🗑️ *{date}* deleted ({removed} entr{'y' if removed == 1 else 'ies'} removed).",
+            parse_mode="Markdown",
+            reply_markup=history_range_kb(),
+        )
+        return HISTORY_MENU
+
+    if query.data.startswith("del_"):
+        date = query.data[len("del_"):]
+        entries = [e for e in load_history(30) if e["date"] == date]
+        total = sum(e["total_tips"] for e in entries)
+        await query.edit_message_text(
+            f"⚠️ Delete *{date}*?\n\n{len(entries)} entr{'y' if len(entries) == 1 else 'ies'}, €{total:.2f} total.\n_This cannot be undone._",
+            parse_mode="Markdown",
+            reply_markup=confirm_delete_kb(date),
+        )
+        return HISTORY_MENU
+
     days = 7 if query.data == "hist_7" else 30
     entries = load_history(days)
     label = "Last 7 Days" if days == 7 else "Last 30 Days"
@@ -383,7 +444,7 @@ def main():
             ],
             HISTORY_MENU: [
                 reset_btn,
-                CallbackQueryHandler(history_callback, pattern="^hist_(7|30|back)$"),
+                CallbackQueryHandler(history_callback, pattern="^(hist_(7|30|back|menu)|del_menu|del_.+|delc_.+)$"),
             ],
         },
         fallbacks=[
