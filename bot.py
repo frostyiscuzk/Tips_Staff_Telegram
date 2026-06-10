@@ -90,7 +90,7 @@ def result_text(pool):
 
 def format_history(entries):
     if not entries:
-        return "_No history saved yet\\. Run a tip split to start recording\\._"
+        return "_No history saved yet. Run a tip split to start recording._"
     lines = []
     for entry in reversed(entries):
         lines.append(f"📆 *{entry['date']}* — Total: €{entry['total_tips']:.2f}")
@@ -111,8 +111,8 @@ def format_history(entries):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text(
-        "👋 *Hey\\! Tip Split Bot*\n\nWhat would you like to do?",
-        parse_mode="MarkdownV2",
+        "👋 *Hey! Tip Split Bot*\n\nWhat would you like to do?",
+        parse_mode="Markdown",
         reply_markup=main_menu_kb(),
     )
     return MAIN_MENU
@@ -123,14 +123,14 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     if query.data == "new_split":
         await query.edit_message_text(
-            "💰 *New Tip Split*\n\nEnter total tips today \\(€\\):",
-            parse_mode="MarkdownV2",
+            "💰 *New Tip Split*\n\nEnter total tips today (€):",
+            parse_mode="Markdown",
         )
         return ASK_TOTAL
     else:  # view_history
         await query.edit_message_text(
             "📋 *Tip History*\n\nSelect a time range:",
-            parse_mode="MarkdownV2",
+            parse_mode="Markdown",
             reply_markup=history_range_kb(),
         )
         return HISTORY_MENU
@@ -147,8 +147,8 @@ async def got_total(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["pool"] = TipPool(total)
     await update.message.reply_text(
-        f"✅ *€{total:.2f}* set\\!\n\nWhich department goes first?",
-        parse_mode="MarkdownV2",
+        f"✅ *€{total:.2f}* set!\n\nWhich department goes first?",
+        parse_mode="Markdown",
         reply_markup=dept_kb(),
     )
     return ASK_DEPT_ORDER
@@ -261,8 +261,8 @@ async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "hist_back":
         await query.edit_message_text(
-            "👋 *Hey\\! Tip Split Bot*\n\nWhat would you like to do?",
-            parse_mode="MarkdownV2",
+            "👋 *Hey! Tip Split Bot*\n\nWhat would you like to do?",
+            parse_mode="Markdown",
             reply_markup=main_menu_kb(),
         )
         return MAIN_MENU
@@ -287,8 +287,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text(
-        "🔄 *Reset\\!*\n\nWhat would you like to do?",
-        parse_mode="MarkdownV2",
+        "🔄 *Reset!*\n\nWhat would you like to do?",
+        parse_mode="Markdown",
         reply_markup=main_menu_kb(),
     )
     return MAIN_MENU
